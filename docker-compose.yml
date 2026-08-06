@@ -1,0 +1,84 @@
+services:
+  ollama:
+    image: ollama/ollama:0.32.5
+    environment:
+      OLLAMA_KEEP_ALIVE: "24h"
+    volumes:
+      - models:/root/.ollama
+      - ./certs:/certs:ro
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        if [ -f /certs/extra-ca.crt ]; then
+          cp /certs/extra-ca.crt /usr/local/share/ca-certificates/extra-ca.crt
+          update-ca-certificates >/dev/null 2>&1 || true
+        fi
+        exec ollama serve
+    networks:
+      default:
+        aliases:
+          - ollama
+    restart: unless-stopped
+
+  puller:
+    image: ollama/ollama:0.32.5
+    depends_on:
+      - ollama
+    environment:
+      OLLAMA_HOST: "http://ollama:11434"
+      LLM_MODEL: ${LLM_MODEL:-llama3.2}
+    volumes:
+      - ./certs:/certs:ro
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        if [ -f /certs/extra-ca.crt ]; then
+          cp /certs/extra-ca.crt /usr/local/share/ca-certificates/extra-ca.crt
+          update-ca-certificates >/dev/null 2>&1 || true
+        fi
+        for _ in $$(seq 1 60); do
+          ollama list >/dev/null 2>&1 && break
+          sleep 1
+        done
+        have=$$(ollama list 2>/dev/null | awk 'NR>1 {print $$1}')
+        if echo "$$have" | grep -qx "$$LLM_MODEL" \
+           || echo "$$have" | grep -qx "$$LLM_MODEL:latest"; then
+          echo "[puller] $$LLM_MODEL already in the volume - reusing, nothing to download"
+          exit 0
+        fi
+        echo "[puller] $$LLM_MODEL not in the volume - pulling (one-time, may be several GB)"
+        ollama pull "$$LLM_MODEL"
+    restart: "no"
+
+  rest:
+    image: nginx:1.27-alpine
+    ports:
+      - "8443:8443"
+    environment:
+      LLM_BEARER_TOKEN: ${LLM_BEARER_TOKEN:?LLM_BEARER_TOKEN must be set in .env}
+      NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx
+      NGINX_ENVSUBST_FILTER: "^LLM_"
+    extra_hosts:
+      - "llm.local.test:127.0.0.1"
+    networks:
+      default:
+        aliases:
+          - llm.local.test
+    volumes:
+      - ./certs:/certs:ro
+      - ./server/nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+    depends_on:
+      ollama:
+        condition: service_started
+      puller:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  models:
+    name: ollama
+
+networks:
+  default:
