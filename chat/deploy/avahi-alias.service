@@ -1,0 +1,17 @@
+[Unit]
+Description=Publish raspberry.pi.local as an mDNS address record for this host
+Documentation=man:avahi-publish(1)
+Requires=avahi-daemon.service
+After=avahi-daemon.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# avahi-publish holds the record only while it runs, so this stays in the
+# foreground. The address is resolved at start so DHCP changes survive a restart.
+ExecStart=/bin/sh -c 'exec /usr/bin/avahi-publish -a -R raspberry.pi.local "$(hostname -I | cut -d" " -f1)"'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

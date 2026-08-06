@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>chat</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        max-width: 42rem;
+        margin: 0 auto;
+        padding: 1.5rem 1rem 6rem;
+        line-height: 1.55;
+      }
+      h1 { font-size: 1rem; font-weight: 600; opacity: 0.6; margin: 0 0 1.5rem; }
+      #log { display: flex; flex-direction: column; gap: 0.9rem; }
+      .msg { white-space: pre-wrap; word-wrap: break-word; }
+      .msg .who { opacity: 0.5; user-select: none; }
+      .msg.err { color: #c0392b; }
+      form {
+        position: fixed;
+        bottom: 0; left: 0; right: 0;
+        display: flex; gap: 0.5rem;
+        padding: 0.75rem 1rem;
+        background: Canvas;
+        border-top: 1px solid rgba(128, 128, 128, 0.35);
+      }
+      .row { max-width: 42rem; margin: 0 auto; display: flex; gap: 0.5rem; width: 100%; }
+      input, button {
+        font: inherit;
+        padding: 0.5rem 0.7rem;
+        border: 1px solid rgba(128, 128, 128, 0.5);
+        border-radius: 4px;
+        background: Canvas;
+        color: inherit;
+      }
+      input { flex: 1; min-width: 0; }
+      button { cursor: pointer; }
+      button:disabled, input:disabled { opacity: 0.5; cursor: default; }
+    </style>
+  </head>
+  <body>
+    <h1>chat &mdash; smollm2:135m</h1>
+    <div id="log"></div>
+
+    <form id="form">
+      <div class="row">
+        <input id="input" autocomplete="off" placeholder="Say something&hellip;" autofocus />
+        <button id="send" type="submit">Send</button>
+      </div>
+    </form>
+
+    <script>
+      const MODEL = "smollm2:135m";
+
+      const log = document.getElementById("log");
+      const form = document.getElementById("form");
+      const input = document.getElementById("input");
+      const send = document.getElementById("send");
+
+      const history = [];
+
+      function addMsg(who, text, cls) {
+        const el = document.createElement("div");
+        el.className = "msg" + (cls ? " " + cls : "");
+        const label = document.createElement("span");
+        label.className = "who";
+        label.textContent = who + "  ";
+        const body = document.createElement("span");
+        body.textContent = text;
+        el.append(label, body);
+        log.append(el);
+        window.scrollTo(0, document.body.scrollHeight);
+        return body;
+      }
+
+      function busy(on) {
+        input.disabled = on;
+        send.disabled = on;
+        if (!on) input.focus();
+      }
+
+      async function ask(text) {
+        history.push({ role: "user", content: text });
+        const out = addMsg("bot", "");
+        let reply = "";
+
+        let res;
+        try {
+          res = await fetch("/v1/chat/completions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ model: MODEL, stream: true, messages: history }),
+          });
+        } catch (e) {
+          out.parentElement.classList.add("err");
+          out.textContent = "network error: " + e.message;
+          history.pop();
+          return;
+        }
+
+        if (!res.ok) {
+          out.parentElement.classList.add("err");
+          out.textContent = "HTTP " + res.status + " " + (await res.text()).slice(0, 300);
+          history.pop();
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+
+          // SSE events are separated by a blank line; keep any partial tail.
+          const events = buf.split("\n\n");
+          buf = events.pop();
+
+          for (const evt of events) {
+            const line = evt.trim();
+            if (!line.startsWith("data:")) continue;
+            const payload = line.slice(5).trim();
+            if (payload === "[DONE]") continue;
+            try {
+              const delta = JSON.parse(payload).choices?.[0]?.delta?.content;
+              if (delta) {
+                reply += delta;
+                out.textContent = reply;
+                window.scrollTo(0, document.body.scrollHeight);
+              }
+            } catch {
+              // ignore keepalives and any non-JSON frame
+            }
+          }
+        }
+
+        if (reply) history.push({ role: "assistant", content: reply });
+        else {
+          out.parentElement.classList.add("err");
+          out.textContent = "(empty reply)";
+          history.pop();
+        }
+      }
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const text = input.value.trim();
+        if (!text) return;
+        input.value = "";
+        addMsg("you", text);
+        busy(true);
+        try {
+          await ask(text);
+        } finally {
+          busy(false);
+        }
+      });
+    </script>
+  </body>
+</html>
