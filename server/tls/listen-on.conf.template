@@ -1,0 +1,5 @@
+listen ${LLM_PORT} ssl;
+
+ssl_certificate     /certs/llm-cert.pem;
+ssl_certificate_key /certs/llm-key.pem;
+ssl_protocols       TLSv1.2 TLSv1.3;

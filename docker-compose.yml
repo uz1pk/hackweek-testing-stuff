@@ -55,9 +55,11 @@ services:
   rest:
     image: nginx:1.27-alpine
     ports:
-      - "8443:8443"
+      - "${LLM_PORT:-8443}:${LLM_PORT:-8443}"
     environment:
       LLM_BEARER_TOKEN: ${LLM_BEARER_TOKEN:?LLM_BEARER_TOKEN must be set in .env}
+      LLM_TLS: ${LLM_TLS:-on}
+      LLM_PORT: ${LLM_PORT:-8443}
       NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx
       NGINX_ENVSUBST_FILTER: "^LLM_"
     extra_hosts:
@@ -69,6 +71,7 @@ services:
     volumes:
       - ./certs:/certs:ro
       - ./server/nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+      - ./server/tls:/etc/nginx/templates/tls:ro
     depends_on:
       ollama:
         condition: service_started
