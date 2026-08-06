@@ -1,8 +1,2 @@
-certs/*.pem
-certs/*.key
-certs/*.crt
-certs/*.csr
-certs/*.srl
-certs/*.p12
-certs/*.jks
+ca/*.crt
 .DS_Store

@@ -1,15 +1,15 @@
-# llm-https
+# local-llm
 
-A local open-weight LLM behind an HTTPS front door with bearer-token auth.
+A local open-weight LLM behind a token-checked HTTP front door.
 
 - **`ollama`** — runs the model. No published ports; reachable only inside the compose network. Weights persist in the `ollama` volume.
-- **`rest`** — nginx on `:8443`. Terminates TLS with a self-signed leaf, checks the token, proxies `/v1/` to Ollama. TLS is on by default and can be turned off — see [TLS](#tls).
+- **`rest`** — nginx on `:8442`. Checks the bearer token and proxies `/v1/` to Ollama.
 - Surface is OpenAI-compatible `/v1/` only — anything else, including Ollama's native `/api/*`, returns `404`.
+- **Plain HTTP, no TLS.** The token crosses the wire in cleartext, so this is a localhost-only toy. Don't put it on a shared network.
 
 ## Start
 
 ```bash
-./certs/generate-certs.sh   # TLS on (the default) — skip this with TLS off
 docker compose up -d
 ```
 
@@ -17,19 +17,7 @@ First `up` downloads the model (~270 MB for the default `smollm2:135m`); later r
 
 ## Call it
 
-```bash
-curl --cacert certs/llm-cert.pem \
-  -H "Authorization: Bearer llm-local-dev-token-change-me" \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"smollm2:135m","messages":[{"role":"user","content":"Why is the sky blue?"}]}' \
-  https://localhost:8443/v1/chat/completions
-```
-
-- Use `localhost`, not `127.0.0.1` — the cert has no IP SAN.
-- Add `"stream": true` (with `curl -N`) for SSE.
-- Any OpenAI SDK works: `base_url="https://localhost:8443/v1"`, plus `SSL_CERT_FILE=$PWD/certs/llm-cert.pem` so it trusts the leaf.
-
-With TLS off it's the same call without the cert flag, on port 8442:
+Chat completion:
 
 ```bash
 curl -H "Authorization: Bearer llm-local-dev-token-change-me" \
@@ -38,30 +26,59 @@ curl -H "Authorization: Bearer llm-local-dev-token-change-me" \
   http://localhost:8442/v1/chat/completions
 ```
 
+Stream it — `-N` stops curl buffering the SSE:
+
+```bash
+curl -N -H "Authorization: Bearer llm-local-dev-token-change-me" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"smollm2:135m","stream":true,"messages":[{"role":"user","content":"Count to three"}]}' \
+  http://localhost:8442/v1/chat/completions
+```
+
+Plain completion, no chat template:
+
+```bash
+curl -H "Authorization: Bearer llm-local-dev-token-change-me" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"smollm2:135m","prompt":"The capital of France is","max_tokens":10}' \
+  http://localhost:8442/v1/completions
+```
+
+List what's actually in the volume — handy when a request 404s on a model you thought you'd pulled:
+
+```bash
+curl -H "Authorization: Bearer llm-local-dev-token-change-me" \
+  http://localhost:8442/v1/models
+```
+
+Two failure modes worth recognising, both JSON:
+
+```bash
+curl http://localhost:8442/v1/models     # 401 invalid_api_key  — token missing or wrong
+curl http://localhost:8442/api/tags      # 404                  — outside /v1/
+```
+
+Any OpenAI SDK works against `base_url="http://localhost:8442/v1"`, with the token as the API key.
+
 ## Configure
 
-- `.env` holds `LLM_BEARER_TOKEN` and `LLM_MODEL` — the single source of truth for the server.
-- The committed token is a **deliberately fake local-dev credential**, not a secret. Change it if this ever leaves localhost.
-- Rotate it: edit `.env`, then `docker compose restart rest`.
+`.env` is the single source of truth — every value is required, and `docker compose up` fails with a named error if one is missing.
 
-### TLS
+| | |
+|---|---|
+| `LLM_BEARER_TOKEN` | The token `rest` checks. Rotate with an edit plus `docker compose down && up -d`. |
+| `LLM_MODEL` | What `puller` fetches on first start. |
+| `LLM_PORT` | Feeds both the published port and nginx's `listen`, so the two can't disagree. |
 
-`.env` holds the two knobs, which move together:
-
-| | `LLM_TLS` | `LLM_PORT` | Certs needed |
-|---|---|---|---|
-| HTTPS (default) | `on` | `8443` | yes — run `./certs/generate-certs.sh` |
-| Plain HTTP | `off` | `8442` | no |
-
-Flip both lines, then `docker compose down && docker compose up -d` — nginx reads its config only at start, and the published port changes with the mode.
-
-- **With `LLM_TLS=off` the bearer token is sent in cleartext.** Use plain mode on localhost only, never on a shared network. The token is still required — a request without it gets the same `401` in both modes.
-- `LLM_PORT` is what actually gets published and listened on, so the pairing above is a convention, not a constraint: `LLM_TLS=off` with `LLM_PORT=8443` serves plain HTTP on 8443 quite happily.
-- Any value of `LLM_TLS` other than `on` or `off` fails loudly at startup (`[emerg] open() "/etc/nginx/tls/listen-<value>.conf" failed`) rather than silently serving the wrong thing.
-- Cert paths and `ssl_protocols` are not configurable; they live in `server/tls/listen-on.conf.template`.
+The committed token is a **deliberately fake local-dev credential**, not a secret.
 
 ## Notes
 
 - To pick up config edits use `docker compose down` then `up -d` — nginx reads its config only at start, so `stop`/`start` keeps the old one. Weights survive either way.
-- CPU-only by design (Docker can't reach Apple Silicon's GPU), so the default is `smollm2:135m` — tiny and dumb, but fast enough to test the server with. Swap `LLM_MODEL` for something bigger (`llama3.2` = 3B) if you want coherent answers and can wait.
-- If `ollama pull` fails with `x509: certificate signed by unknown authority`, your network intercepts TLS: drop your CA at `certs/extra-ca.crt` and `docker compose restart ollama`.
+- CPU-only by design (Docker can't reach Apple Silicon's GPU), so the default is `smollm2:135m` — tiny and dumb, but fast enough to test the server with. Swap `LLM_MODEL` for something bigger (`llama3.2:1b`, or `llama3.2` for 3B) if you want coherent answers and can wait.
+- If `ollama pull` fails with `x509: certificate signed by unknown authority`, your network intercepts TLS. Drop that CA at `ca/extra-ca.crt` and `docker compose up -d ollama`; both `ollama` and `puller` copy it into their trust store at boot. On a Palantir machine:
+
+  ```bash
+  security find-certificate -a -c "Palantir PAN Firewall CA 2023" \
+    -p /Library/Keychains/System.keychain > ca/extra-ca.crt
+  ```
