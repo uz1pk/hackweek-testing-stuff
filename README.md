@@ -13,7 +13,7 @@ A local open-weight LLM behind an HTTPS front door with bearer-token auth.
 docker compose up -d
 ```
 
-First `up` downloads the model (~2 GB); later runs reuse the volume copy.
+First `up` downloads the model (~270 MB for the default `smollm2:135m`); later runs reuse the volume copy.
 
 ## Call it
 
@@ -21,7 +21,7 @@ First `up` downloads the model (~2 GB); later runs reuse the volume copy.
 curl --cacert certs/llm-cert.pem \
   -H "Authorization: Bearer llm-local-dev-token-change-me" \
   -H 'Content-Type: application/json' \
-  -d '{"model":"llama3.2","messages":[{"role":"user","content":"Why is the sky blue?"}]}' \
+  -d '{"model":"smollm2:135m","messages":[{"role":"user","content":"Why is the sky blue?"}]}' \
   https://localhost:8443/v1/chat/completions
 ```
 
@@ -34,7 +34,7 @@ With TLS off it's the same call without the cert flag, on port 8442:
 ```bash
 curl -H "Authorization: Bearer llm-local-dev-token-change-me" \
   -H 'Content-Type: application/json' \
-  -d '{"model":"llama3.2","messages":[{"role":"user","content":"Why is the sky blue?"}]}' \
+  -d '{"model":"smollm2:135m","messages":[{"role":"user","content":"Why is the sky blue?"}]}' \
   http://localhost:8442/v1/chat/completions
 ```
 
@@ -63,5 +63,5 @@ Flip both lines, then `docker compose down && docker compose up -d` — nginx re
 ## Notes
 
 - To pick up config edits use `docker compose down` then `up -d` — nginx reads its config only at start, so `stop`/`start` keeps the old one. Weights survive either way.
-- CPU-only by design (Docker can't reach Apple Silicon's GPU). A 3B Q4 model is comfortable; 13B+ gets slow.
+- CPU-only by design (Docker can't reach Apple Silicon's GPU), so the default is `smollm2:135m` — tiny and dumb, but fast enough to test the server with. Swap `LLM_MODEL` for something bigger (`llama3.2` = 3B) if you want coherent answers and can wait.
 - If `ollama pull` fails with `x509: certificate signed by unknown authority`, your network intercepts TLS: drop your CA at `certs/extra-ca.crt` and `docker compose restart ollama`.
