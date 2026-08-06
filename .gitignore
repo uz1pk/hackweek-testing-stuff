@@ -1,2 +1,2 @@
-ca/*.crt
+llm/ca/*.crt
 .DS_Store
