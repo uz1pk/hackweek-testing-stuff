@@ -33,6 +33,10 @@ The bearer token and the TLS private key are committed on purpose — local-only
 a fresh clone runs with no setup step. Keep this on a network you trust and don't port-forward
 it.
 
+## Raspberry Pi
+
+See [`RASPBERRY-PI.md`](RASPBERRY-PI.md) for running the LLM and its TLS proxy on a Pi.
+
 ## Clean up
 
 ```bash
