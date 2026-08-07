@@ -43,7 +43,7 @@ Chat, streaming:
 curl -N --cacert certs/offline.crt \
   -H "Authorization: Bearer llm-local-dev-token-change-me" \
   -H 'Content-Type: application/json' \
-  -d '{"model":"smollm2:135m","stream":true,"messages":[{"role":"user","content":"Count to three"}]}' \
+  -d '{"model":"gemma3:1b","stream":true,"messages":[{"role":"user","content":"Count to three"}]}' \
   https://localhost:8442/v1/chat/completions
 ```
 

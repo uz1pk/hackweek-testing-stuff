@@ -17,7 +17,7 @@ uname -m
 
 `aarch64` is correct. If it says `armv7l`, reflash with the 64-bit image first.
 
-A Pi 4 or 5 with 4 GB is comfortable for `smollm2:135m`. Expect tens of seconds per reply.
+A Pi 4 or 5 with 4 GB is comfortable for `gemma3:1b`. Expect tens of seconds per reply.
 
 ## Install Docker
 
@@ -67,7 +67,7 @@ echo "127.0.0.1  offline.llm" | sudo tee -a /etc/hosts
 curl --cacert certs/offline.crt \
   -H "Authorization: Bearer llm-local-dev-token-change-me" \
   -H "Content-Type: application/json" \
-  -d '{"model":"smollm2:135m","messages":[{"role":"user","content":"What color is the sky?"}]}' \
+  -d '{"model":"gemma3:1b","messages":[{"role":"user","content":"What color is the sky?"}]}' \
   https://offline.llm:8442/v1/chat/completions
 ```
 
@@ -77,7 +77,7 @@ Streaming, so you see tokens instead of waiting:
 curl -N --cacert certs/offline.crt \
   -H "Authorization: Bearer llm-local-dev-token-change-me" \
   -H "Content-Type: application/json" \
-  -d '{"model":"smollm2:135m","stream":true,"messages":[{"role":"user","content":"Count to three"}]}' \
+  -d '{"model":"gemma3:1b","stream":true,"messages":[{"role":"user","content":"Count to three"}]}' \
   https://offline.llm:8442/v1/chat/completions
 ```
 
