@@ -106,6 +106,99 @@ Then on the client, with that address:
 Copy `llm/certs/offline.crt` to the client and pass it with `--cacert`. The same URL then
 works from anywhere on the network.
 
+## Chat app from a phone
+
+A phone cannot edit `/etc/hosts`, so `offline.llm` has to resolve over DNS, and the phone has
+to trust the certificate. Both are one-time steps.
+
+### 1. Start the chat stack
+
+```bash
+cd ../chat
+docker compose up -d
+```
+
+It listens on 443, so the phone uses `https://offline.llm` with no port. It bind-mounts
+`../llm/certs/`, so keep both directories side by side.
+
+### 2. Confirm the hotspot serves DNS
+
+The access point must be a NetworkManager connection in `shared` mode. That is what makes NM
+run an embedded dnsmasq for clients.
+
+```bash
+nmcli -f ipv4.method,ipv4.addresses connection show <hotspot-name>
+hostname -I
+```
+
+`ipv4.method` must be `shared`. Shared mode defaults to `10.42.0.1/24`, so the Pi is normally
+`10.42.0.1` on the hotspot — use whatever `hostname -I` reports.
+
+Standalone `dnsmasq` and `hostapd` are not involved and will show inactive.
+
+### 3. Point the name at the Pi
+
+```bash
+sudo mkdir -p /etc/NetworkManager/dnsmasq-shared.d
+echo "address=/offline.llm/10.42.0.1" | sudo tee /etc/NetworkManager/dnsmasq-shared.d/offline-llm.conf
+sudo systemctl restart NetworkManager
+```
+
+Confirm dnsmasq is running and reading the drop-in:
+
+```bash
+pgrep -a dnsmasq
+```
+
+The output must contain `--conf-dir=/etc/NetworkManager/dnsmasq-shared.d`.
+
+For a direct query, `dig` needs installing first — it is not on a stock image:
+
+```bash
+sudo apt install -y dnsutils
+dig +short @10.42.0.1 offline.llm
+```
+
+That must print the Pi's hotspot address. Do not use `getent hosts` to test this: it reads
+`/etc/hosts` first and will report `127.0.0.1` whether or not dnsmasq works.
+
+Restarting NetworkManager drops the access point briefly, so reconnect the phone afterwards.
+
+The Pi's own `/etc/hosts` entry still points `offline.llm` at `127.0.0.1`, which is correct —
+local calls stay on loopback while clients get the hotspot address.
+
+### 4. Trust the certificate on the phone
+
+Serve the certificate over plain HTTP so the phone can fetch it without a trust chicken-and-egg:
+
+```bash
+cd ../llm/certs && python3 -m http.server 8000
+```
+
+On the phone, open `http://10.42.0.1:8000/offline.crt`. Stop the server with Ctrl-C when done.
+
+**iOS** — opening the file prompts to download a profile. Install it under
+Settings → General → VPN & Device Management. Then the step that is easy to miss:
+
+```
+Settings -> General -> About -> Certificate Trust Settings
+```
+
+Enable full trust for `offline.llm`. Safari rejects the certificate until you do.
+
+**Android** — Settings → Security → Encryption & credentials → Install a certificate →
+CA certificate. Accept the warning about user-installed certificates.
+
+To skip installing anything, both browsers let you tap through the warning per session.
+
+### 5. Open it
+
+```
+https://offline.llm
+```
+
+The page and every `/v1/` call it makes are TLS end to end.
+
 ## Troubleshooting
 
 | Symptom | Cause |
@@ -118,6 +211,17 @@ works from anywhere on the network.
 | `401` | Token does not match `LLM_BEARER_TOKEN` in `llm/.env`. |
 | `exec format error` in logs | 32-bit OS. Reflash with 64-bit. |
 | Very slow replies | Normal on Pi-class CPUs. |
+
+From a phone:
+
+| Symptom | Cause |
+|---|---|
+| Browser cannot find the server | DNS record missing or not reloaded. Check `pgrep -a dnsmasq`, then toggle the phone's Wi-Fi to drop its DNS cache. |
+| `pgrep -a dnsmasq` finds nothing | `ipv4.method` is not `shared`, so NetworkManager is not running dnsmasq for the hotspot. |
+| `dig: command not found` | Not installed by default: `sudo apt install -y dnsutils`. |
+| Certificate warning after installing on iOS | Full trust not enabled under Settings → General → About → Certificate Trust Settings. |
+| Page loads, replies fail | The `llm` stack is down. Check `docker compose ps` in `llm/`. |
+| Page loads over Wi-Fi but not mobile data | Expected. The name only resolves on the Pi's network. |
 
 The certificate expires **2026-09-06**. After that every call fails verification until it is
 rotated; the command is in [`llm/README.md`](llm/README.md).
