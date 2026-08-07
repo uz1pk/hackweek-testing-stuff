@@ -1,6 +1,6 @@
 # static
 
-One nginx container serving one HTML page over plain HTTP. No auth, no TLS, no upstream.
+One nginx container serving one HTML page over plain HTTP. No auth, no upstream.
 
 ## Start
 
@@ -8,28 +8,23 @@ One nginx container serving one HTML page over plain HTTP. No auth, no TLS, no u
 docker compose up -d
 ```
 
-Then open <http://localhost:8080> or:
+Then <http://localhost:8080>.
+
+## Commands
 
 ```bash
 curl http://localhost:8080
+docker compose logs -f web
+docker compose restart web
 ```
 
-## Layout
+`html/` is bind-mounted, so page edits need only a reload. `nginx.conf` is read at start only,
+so config edits need a restart.
 
-| | |
-|---|---|
-| `html/` | Bind-mounted to nginx's web root. Edit and reload — no restart, no rebuild. |
-| `nginx.conf` | The whole config, mounted over the image's default. Read at start only, so config edits need `docker compose restart web`. |
+To change the port, edit the left side of `"8080:80"` in `docker-compose.yml`.
 
-Anything with no matching file returns nginx's stock `404`, as HTML rather than JSON — this server has no opinion about your API.
+## Clean up
 
-## Change the port
-
-`8080` appears once, in `docker-compose.yml`:
-
-```yaml
-ports:
-  - "8080:80"
+```bash
+docker compose down
 ```
-
-Only the left side is yours to pick; nginx listens on `80` inside the container regardless.

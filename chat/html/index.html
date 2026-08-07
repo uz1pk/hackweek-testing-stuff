@@ -116,7 +116,6 @@
           if (done) break;
           buf += decoder.decode(value, { stream: true });
 
-          // SSE events are separated by a blank line; keep any partial tail.
           const events = buf.split("\n\n");
           buf = events.pop();
 
@@ -132,9 +131,7 @@
                 out.textContent = reply;
                 window.scrollTo(0, document.body.scrollHeight);
               }
-            } catch {
-              // ignore keepalives and any non-JSON frame
-            }
+            } catch {}
           }
         }
 

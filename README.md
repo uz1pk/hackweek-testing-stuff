@@ -1,25 +1,44 @@
 # hackweek-testing-stuff
 
-Three independent Docker Compose stacks. Each is brought up on its own.
+Three independent Docker Compose stacks, each brought up on its own.
 
 | | | |
 |---|---|---|
-| [`llm/`](llm/) | `:8442` | An open-weight LLM behind a token-checked, OpenAI-compatible `/v1/` front door. |
-| [`static/`](static/) | `:8080` | Plain nginx serving one HTML page. No auth, no upstream. |
-| [`chat/`](chat/) | `:80` | Bare-bones web chat UI for the LLM, served at [raspberry.pi.local](http://raspberry.pi.local). |
+| [`llm/`](llm/) | `https://offline.llm:8442` | Open-weight LLM behind a token-checked, OpenAI-compatible `/v1/` API. |
+| [`chat/`](chat/) | `https://offline.llm` | Web chat UI for the LLM. |
+| [`static/`](static/) | `http://localhost:8080` | Plain nginx serving one HTML page. |
 
 ```bash
 cd llm    && docker compose up -d
-cd static && docker compose up -d
 cd chat   && docker compose up -d
+cd static && docker compose up -d
 ```
 
-`llm/` and `static/` share nothing at all. `chat/` is the one exception: it reverse-proxies
-to `llm/` over the host's published port, so it needs that stack up — but it still runs as
-its own project on its own network, reachable or not.
+`chat/` depends on `llm/`: it proxies to it and mounts its certificate, so bring `llm/` up
+first and keep the directories side by side. `static/` shares nothing with either.
 
-Nothing here uses TLS, and `chat/` puts an unauthenticated door in front of the LLM for
-anyone on the same network. Keep all three on a network you trust.
+## TLS
 
-`chat/` is meant to run on a Raspberry Pi alongside `llm/`; see [`chat/README.md`](chat/README.md)
-for the deploy and mDNS hostname steps.
+`llm/` and `chat/` are HTTPS only. Both use one static, committed, self-signed certificate at
+`llm/certs/` — `CN=offline.llm`, SANs `offline.llm`, `localhost`, `127.0.0.1`, expiring
+**2026-09-06**. Nothing is generated at deploy time.
+
+Add to `/etc/hosts` on each client, using the Pi's LAN IP from other machines:
+
+```
+127.0.0.1  offline.llm
+```
+
+The bearer token and the TLS private key are committed on purpose — local-only credentials so
+a fresh clone runs with no setup step. Keep this on a network you trust and don't port-forward
+it.
+
+## Clean up
+
+```bash
+cd llm && docker compose down
+cd chat && docker compose down
+cd static && docker compose down
+```
+
+Add `-v` to the `llm/` command to delete the downloaded model weights as well.

@@ -1,85 +1,56 @@
 # chat
 
-A bare-bones web chat UI for the `llm` stack, served at <http://raspberry.pi.local>.
+A bare-bones web chat UI for the `llm` stack, served over HTTPS at <https://offline.llm>.
 
-One nginx container does both jobs: it serves a single static page, and it reverse-proxies
-`/v1/` to the `llm` stack while adding the `Authorization` header server-side. That means
-the page and the API share an origin (**no CORS to configure**) and the bearer token never
-reaches the browser — nothing in View Source contains it.
+One nginx container serves the page and reverse-proxies `/v1/` to the `llm` stack, adding the
+bearer token server-side — so the page and API share an origin (no CORS) and the token never
+reaches the browser.
 
-```
-browser ──▶ :80 /            nginx serves html/index.html
-        ──▶ :80 /v1/…        nginx adds Bearer token ──▶ host:8442 (llm stack)
-```
+Both hops are TLS, using the same committed cert from `../llm/certs/`. That directory must be
+present alongside this one.
 
-## Run it locally
+## Start
 
-Needs the `llm` stack already up, since it proxies to `:8442` on the host.
+Needs the `llm` stack up first.
 
 ```bash
 cd ../llm && docker compose up -d
 cd ../chat && docker compose up -d
 ```
 
-Then <http://localhost>. Replies stream token-by-token.
+Add the host to `/etc/hosts` on every client that will open the page:
 
-## Deploy to the Pi
-
-Both stacks run on the Pi. It must be **64-bit** Raspberry Pi OS — `ollama/ollama` publishes
-`arm64` only, with no `arm/v7` variant, so a 32-bit install cannot run the LLM stack at all.
-
-```bash
-# on the Pi
-git clone <this repo> && cd <repo>
-cd llm  && docker compose up -d     # first run pulls the model
-cd ../chat && docker compose up -d
+```
+127.0.0.1  offline.llm
 ```
 
-### Making the hostname resolve
+Use the Pi's LAN IP instead of `127.0.0.1` on other devices. Then open <https://offline.llm>.
 
-`raspberry.pi.local` has two labels, and Avahi only auto-publishes the single-label
-`<hostname>.local` (a stock Pi is `raspberrypi.local`). Setting the Pi's hostname to
-`raspberry.pi` will not work either — Avahi rejects dots in `host-name`. Publish it as an
-explicit address record instead:
+Your browser will warn on the self-signed cert — accept it once, or import
+`../llm/certs/offline.crt` as a trusted root.
 
-```bash
-sudo apt install -y avahi-utils
-sudo cp deploy/avahi-alias.service /etc/systemd/system/
-sudo systemctl enable --now avahi-alias.service
-```
-
-Check it took:
+## Commands
 
 ```bash
-avahi-resolve -n raspberry.pi.local
+docker compose logs -f web
+docker compose restart web
 ```
 
-Once that resolves, every device on the LAN reaches the app at
-<http://raspberry.pi.local> with no per-device `/etc/hosts` edits.
+`nginx.conf` and `html/` are bind-mounted: page edits need only a reload, config edits need a
+restart.
 
-## Configure
+A `502` means `:8442` is not answering — `rest` waits for the model download to finish. Check
+with `docker compose logs puller` in `../llm`.
 
-Deliberately no `.env` — the two values that matter are literals:
+## Clean up
 
-| | | |
-|---|---|---|
-| bearer token | `nginx.conf`, `proxy_set_header Authorization` | Must match `LLM_BEARER_TOKEN` in `llm/.env`. Change both together. |
-| model | `html/index.html`, `const MODEL` | Must be a model the `llm` stack has pulled. Check with `curl -H "Authorization: Bearer <token>" localhost:8442/v1/models`. |
-
-The token is the same throwaway local-dev value `llm/.env` already commits. If you ever put
-a real token in `llm/.env`, this file becomes a second place it leaks from.
-
-`nginx.conf` and `html/` are both bind-mounted: page edits need only a reload, config edits
-need `docker compose restart web`.
+```bash
+docker compose down
+```
 
 ## Caveats
 
-- **No auth on the chat app itself.** Anyone who can reach the Pi on your network can use
-  your LLM. That's the trade for not having a login; add nginx `auth_basic` if your LAN
-  isn't yours alone.
-- **No TLS**, so this stays a LAN toy. Don't port-forward it.
-- Inference on Pi-class CPUs is slow. `smollm2:135m` is roughly the usable ceiling, and it
-  is a 135M-parameter model — expect it to be fast and not very bright.
-- Conversation history lives in a JS variable. Reloading the page forgets everything.
-- The Pi-side steps above (Avahi unit, arm64 deploy) are **written but not tested** — they
-  were authored against `avahi-publish(1)` and the image manifests, not run on hardware.
+- **No auth on the app itself.** Anyone who can reach the Pi can use your LLM.
+- The cert expires **2026-09-06**; after that everything fails verification until rotated.
+- History lives in a JS variable — reloading forgets everything.
+- Needs 64-bit Raspberry Pi OS; `ollama/ollama` ships `arm64` only.

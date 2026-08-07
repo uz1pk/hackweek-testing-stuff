@@ -5,16 +5,6 @@ services:
       OLLAMA_KEEP_ALIVE: "24h"
     volumes:
       - models:/root/.ollama
-      - ./ca:/ca:ro
-    entrypoint:
-      - /bin/bash
-      - -c
-      - |
-        if [ -f /ca/extra-ca.crt ]; then
-          cp /ca/extra-ca.crt /usr/local/share/ca-certificates/extra-ca.crt
-          update-ca-certificates >/dev/null 2>&1 || true
-        fi
-        exec ollama serve
     networks:
       default:
         aliases:
@@ -28,16 +18,10 @@ services:
     environment:
       OLLAMA_HOST: "http://ollama:11434"
       LLM_MODEL: ${LLM_MODEL:?LLM_MODEL must be set in .env}
-    volumes:
-      - ./ca:/ca:ro
     entrypoint:
       - /bin/bash
       - -c
       - |
-        if [ -f /ca/extra-ca.crt ]; then
-          cp /ca/extra-ca.crt /usr/local/share/ca-certificates/extra-ca.crt
-          update-ca-certificates >/dev/null 2>&1 || true
-        fi
         for _ in $$(seq 1 60); do
           ollama list >/dev/null 2>&1 && break
           sleep 1
@@ -62,13 +46,15 @@ services:
       NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx
       NGINX_ENVSUBST_FILTER: "^LLM_"
     extra_hosts:
-      - "llm.local.test:127.0.0.1"
+      - "offline.llm:127.0.0.1"
     networks:
       default:
         aliases:
-          - llm.local.test
+          - offline.llm
     volumes:
       - ./server/nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+      - ./certs/offline.crt:/certs/offline.crt:ro
+      - ./certs/offline.key:/certs/offline.key:ro
     depends_on:
       ollama:
         condition: service_started
